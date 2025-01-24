@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"log"
+	"os"
 	"reflect"
 
 	"github.com/joho/godotenv"
@@ -15,6 +16,7 @@ const (
 
 type Options struct {
 	printLogLoading bool
+	prefix          string
 	files           map[string]struct{}
 }
 
@@ -27,30 +29,31 @@ func LoadConfig[T any](options ...LoadOption) (*T, error) {
 	}
 
 	for fileName := range opts.files {
-		err := godotenv.Load(fileName)
-		if err != nil {
-			log.Println("[API][TRANSPORT][CONFIG] WARN ", err)
+		log.Printf("Loading .env file: %s", fileName)
+		if err := godotenv.Load(fileName); err != nil {
+			log.Printf("[WARN] Could not load file (%s): %v", fileName, err)
 		}
 	}
 
+	fmt.Println("Environment variables:")
+	for _, env := range os.Environ() {
+		fmt.Println(env)
+	}
+
 	var instance T
-	val := reflect.ValueOf(&instance).Elem()
+	fmt.Printf("Before envconfig.Process: %+v\n", instance)
 
-	if val.Kind() != reflect.Struct {
-
+	if err := envconfig.Process(opts.prefix, &instance); err != nil {
+		log.Fatalf("Failed to process environment variables: %v\n", err)
 	}
-
-	if err := envconfig.Process("", &instance); err != nil {
-		log.Fatalln(err)
-	}
+	fmt.Printf("After envconfig.Process: %+v\n", instance)
 
 	if opts.printLogLoading {
-		printConfig(instance)
+		printConfig(instance, opts.prefix)
 	}
 
 	return &instance, nil
 }
-
 func AddFile(filePath string) func(*Options) {
 	return func(opt *Options) {
 		opt.files[filePath] = struct{}{}
@@ -65,19 +68,25 @@ func AddFiles(files []string) func(*Options) {
 	}
 }
 
+func WithPrefix(prefix string) func(*Options) {
+	return func(opt *Options) {
+		opt.prefix = prefix
+	}
+}
+
 func WithPrintConfig() func(*Options) {
 	return func(opt *Options) {
 		opt.printLogLoading = true
 	}
 }
 
-func printConfig[T any](data T) {
+func printConfig[T any](data T, prefix string) {
 	fmt.Printf("--------------------------------\n")
-	printConfigUtil(data)
+	printConfigUtil(data, prefix)
 	fmt.Printf("--------------------------------\n\n")
 }
 
-func printConfigUtil[T any](data T) {
+func printConfigUtil[T any](data T, prefix string) {
 	val := reflect.ValueOf(data)
 	if val.Kind() == reflect.Ptr {
 		val = val.Elem()
@@ -103,7 +112,7 @@ func printConfigUtil[T any](data T) {
 		field := typ.Field(i)
 		if field.Type.Kind() == reflect.Struct {
 			fieldValue := val.Field(i).Interface()
-			printConfigUtil(fieldValue)
+			printConfigUtil(fieldValue, prefix)
 			continue
 		}
 
